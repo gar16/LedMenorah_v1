@@ -1,0 +1,233 @@
+/*
+ *
+ * Created: 10/18/2015 12:51:46 AM
+ * revised 9/2018
+ *  Author: Pin
+ */ 
+#define F_CPU 1000000UL
+
+#define shamashBrightness OCR0A
+
+#include <avr/io.h>
+#include <util/delay.h>
+#include <avr/pgmspace.h>
+#include "ledmenorahinc.h"
+#include <avr/interrupt.h>
+#include <avr/sleep.h>
+
+//
+uint8_t fadeAmount = 1;
+volatile uint8_t ledtestcount = 0;
+volatile uint8_t shamashFade = 0;
+volatile uint8_t fadeRatecounter = 0;
+volatile uint8_t buttonPressed = 0;
+volatile uint8_t nightNum = 0;//number of leds to light
+//
+int main(void)
+{
+	//variables
+	//set data direction registers
+	DDRA = 0xff;
+	DDRB = 0xff;
+	DDRD = 0xff;
+	DDRB &= ~(1<<DDB3);
+	PORTB |= (1<<PORTB3);
+	set_sleep_mode(SLEEP_MODE_PWR_DOWN);
+	setup_timer0_PWM();
+	PORTA = 0xff;
+	PORTB = 0xff;
+	PORTD = 0xff;
+	
+	
+	PCMSK |= (1<<PCINT3);//enable pin change interrupt
+	GIMSK |= (1<<PCIE0);//interrupt mask enable
+	sei();
+	
+	
+	while(1)
+	{
+		
+		night_select();
+	}
+
+}
+//
+
+ void night_select()
+ {	 	
+	 buttonPressed=0;
+
+	
+	if (nightNum ==9)
+	{
+		larson_scan();
+	}
+	 			
+	else if (nightNum == 10)
+	{
+		led_in_out();
+	}
+	
+	else if (nightNum >= 11)
+	{
+		clear_lights();
+		nightNum = -1;
+		go_to_sleep();	
+	}
+	 
+	else if (nightNum <=8)
+	{
+		turn_on_lights(nightNum);
+		 
+	}
+
+ }
+ 
+void turn_on_lights(int night)
+{
+			for (int i = night; i >= 0; i--)// light nights one at a time to value of night
+			{
+				if (buttonPressed ==1)//this makes strange stuff happen when back from sleep
+					{
+						night_select();
+					}
+				else
+				{
+					_SFR_IO8(pgm_read_byte(&ledPorts[i])) &= ~(1<<pgm_read_byte(&ledPins[i])); // toggle night LEd pins in order
+					_delay_ms(200); // simple delay***replace later with timer delay
+				}
+				
+			}
+			
+}
+
+void clear_lights()
+{
+	for (int i = 0; i <= 8; i++)
+	{
+		_SFR_IO8(pgm_read_byte(&ledPorts[i])) |= (1<<pgm_read_byte(&ledPins[i])); // low night LEd pins in order
+	}
+}
+
+void setup_timer0_PWM()
+{
+	TCCR0A = (1 << COM0A1) | (1 << WGM00) | (1<<WGM01);  // fast PWM mode on pin OC0A
+
+	TCCR0B = (1 << CS01);   // clock source = CLK/8, start PWM
+	
+	TIMSK |= (1<<OCIE0B);	//Timer/Counter0 Output Compare Match B Interrupt Enable
+	shamashBrightness = 254;
+	
+}
+
+void shamash_fader()
+{
+	shamashBrightness = shamashBrightness + (fadeAmount);
+	
+	if (shamashBrightness == 0 || shamashBrightness == 255) {
+		fadeAmount = -fadeAmount ;
+	}
+}
+
+ISR (TIMER0_COMPB_vect)// timer interrupt for shamash fader
+{
+	if (fadeRatecounter>=5)
+	{
+		shamash_fader();
+		fadeRatecounter = 0;
+	}
+	fadeRatecounter++;
+}
+
+ISR (PCINT_B_vect)//pin change interrupt function for lighting LEDs, ***add wakeup from sleep
+{
+// 	_delay_ms(50);// debounce
+// 	if(!(PINB & (1<<PINB3))) //pin B3 is low
+// 	{
+		_delay_ms(100);
+		
+		if(!(PINB & (1<<PINB3))){
+		clear_lights();
+		nightNum++;
+		buttonPressed = 1;
+		}
+// 	}
+}
+
+void larson_scan()
+{
+	 uint8_t i = 0;
+	while (nightNum == 9)
+	{	
+		while (i < 9)
+			{
+				_SFR_IO8(pgm_read_byte(&ledPorts[i])) &= ~(1<<pgm_read_byte(&ledPins[i]));
+				_SFR_IO8(pgm_read_byte(&ledPorts[i-1])) |= (1<<pgm_read_byte(&ledPins[i-1]));
+				_delay_ms(50);
+				i++;
+				
+			}
+		//
+		while (i > 0)
+			{
+				_SFR_IO8(pgm_read_byte(&ledPorts[i])) &= ~(1<<pgm_read_byte(&ledPins[i]));
+				_SFR_IO8(pgm_read_byte(&ledPorts[i+1])) |= (1<<pgm_read_byte(&ledPins[i+1]));
+				_delay_ms(50);
+				i--;
+			}
+
+	}
+}
+
+void led_in_out()
+{
+	clear_lights();
+	uint8_t LtoR = 4;
+	uint8_t RtoL = 5;
+		while (nightNum == 10)
+		{
+			//begin LtoR 4-1, RtoL 5-8
+			while (LtoR > 0)
+			{
+				//4-1
+				_SFR_IO8(pgm_read_byte(&ledPorts[LtoR])) &= ~(1<<pgm_read_byte(&ledPins[LtoR]));
+				LtoR--;
+				//5-8
+				_SFR_IO8(pgm_read_byte(&ledPorts[RtoL])) &= ~(1<<pgm_read_byte(&ledPins[RtoL]));
+				_delay_ms(75);
+				RtoL++;
+			}
+			
+			while (LtoR < 5)
+			{	
+				//4-1
+				_SFR_IO8(pgm_read_byte(&ledPorts[LtoR])) |= (1<<pgm_read_byte(&ledPins[LtoR]));
+				LtoR++;
+				//5-8
+				_SFR_IO8(pgm_read_byte(&ledPorts[RtoL])) |= (1<<pgm_read_byte(&ledPins[RtoL]));
+				_delay_ms(75);
+				RtoL--;
+			}
+		
+		
+	}
+}
+//
+void go_to_sleep()
+{
+// 	TCCR0B |= (1<<CS02) | (1<<CS01) | (1<<CS00);
+	clear_lights();
+	TCCR0A = 0;
+	nightNum = 0;
+	sleep_mode();
+
+	
+	nightNum = 0;
+	//                    
+	
+	//
+	
+	shamashBrightness = 254;
+	TCCR0A |= (1 << COM0A1) | (1 << WGM00) | (1<<WGM01);  // fast PWM mode on pin OC0A
+// 	
+}
