@@ -1,9 +1,9 @@
 /*
  * menorahinc.h
  *
- * Created: 10/18/2015 3:31:51 AM
+ * Created: 10/18/2015
  * revised 9/2018
- *  Author: Pin
+ *  Author: J
  */ 
 
 
